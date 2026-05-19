@@ -1,5 +1,5 @@
 # this is supposed to be the main game loop for the sudoku game
-
+import copy
 
 import example_games
 
@@ -82,6 +82,10 @@ def is_valid_move(grid, row, column, value):
     # check row
     # check column
     # check 3x3 box, or other sizes if the grid is not 9x9
+    if not (0 <= row < len(grid) and 0 <= column < len(grid[0])):
+        return False
+    if not (1 <= value <= 9):
+        return False
     if grid[row][column] is not None:
         return False
     row_view = get_row_view(grid, row)
@@ -96,18 +100,28 @@ def is_valid_move(grid, row, column, value):
             return False
     return True
 
+def undo_move(grid, move_log):
+    """Undoes the last move made, by restoring the previous cell value."""
+    if not move_log:
+        return False
 
+    row, column, old_value, new_value = move_log.pop()
+    grid[row][column] = old_value
+    print(f"Undid move {new_value} at ({row}, {column}).")
+    return True
 
-
-def make_move(grid, row, column, value):
-    """Makes a move on the Sudoku grid"""
+def make_move(grid, row, column, value, move_log=None):
+    """Makes a move on the Sudoku grid and optionally logs it for undo."""
     if not is_valid_move(grid, row, column, value):
         print("Invalid move. Try again.")
         return False
     if not (1 <= value <= 9):
         print("Value must be between 1 and 9.")
         return False
+    old_value = grid[row][column]
     grid[row][column] = value
+    if move_log is not None:
+        move_log.append((row, column, old_value, value))
     return True
 
 def empty_cell(grid, row, column):
@@ -116,62 +130,83 @@ def empty_cell(grid, row, column):
         grid[row][column] = None
     return None
 
-def main():
-    example_grid = example_games.example_grid_1
-    print_grid(example_grid)
-    box = get_box_view(example_grid, 0, 0)
-    print("Box view for (0, 0):", box)
-    notes = find_notes(example_grid, 0, 0)
-    print("Notes for (0, 0):", notes)
-    easy_move = find_easy_move(example_grid)
-    if easy_move:
-        print("Easy move found:", easy_move)
-    else:        print("No easy move found.")
 
-    # main game loop, asking for user input needing to be in the format "row column value", and then making the move if it's valid, and printing the grid after each move, and allowing the user to exit the game by typing "exit"
+def show_help(output_func=print):
+    """Prints the available commands."""
+    output_func("Move format: 'row column value' (e.g. '0 0 5' to place a 5 in the top-left cell)")
+    output_func("Notes format: 'notes row column' (e.g. 'notes 0 0' to find notes for the top-left cell)")
+    output_func("Edit notes format: 'edit notes row column value' (e.g. 'edit notes 0 0 5' to add/remove 5 from notes for the top-left cell)")
+    output_func("Find easy move: 'find easy move' (to find any cells with only one possible value)")
+    output_func("Undo move: 'undo' (to undo the last move)")
 
-    # want to be able to find the notes for a cell, and edit the notes, and use find easy move function as a player as well 
-    while True:
-        print_grid(example_grid)
-        user_input = input("Enter your move (row column value), notes, edit notes,find easy move or 'exit' to quit: ")
-        if user_input.lower() == 'exit':
-            print("Thanks for playing!")
-            break
 
-        elif user_input.lower() == 'notes':
-            row = int(input("Enter the row for notes: "))
-            column = int(input("Enter the column for notes: "))
-            notes = find_notes(example_grid, row, column)
-            print(f"Notes for cell ({row}, {column}): {notes}")
-            continue
+def handle_command(grid, move_log, user_input, input_func=input, output_func=print):
+    """Handle one user command and return False when the session should end."""
+    command = user_input.lower().strip()
 
-        elif user_input.lower() == 'edit notes':
-            row = int(input("Enter the row for editing notes: "))
-            column = int(input("Enter the column for editing notes: "))
-            value = int(input("Enter the value to add/remove from notes: "))
-            notes = edit_notes(example_grid, row, column, value)
-            print(f"Updated notes for cell ({row}, {column}): {notes}")
-            continue
+    if command == 'exit':
+        output_func("Thanks for playing!")
+        return False
 
-        elif user_input.lower() == 'find easy move':
-            easy_move = find_easy_move(example_grid)
-            if easy_move:
-                print("Easy move found:", easy_move)
-            else:
-                print("No easy move found.")
-            continue
+    if command == "help":
+        show_help(output_func)
+        return True
 
+    if command == 'undo':
+        if not undo_move(grid, move_log):
+            output_func("No moves to undo.")
+        return True
+
+    if command == 'notes':
         try:
-            row, column, value = map(int, user_input.split())
-            if make_move(example_grid, row, column, value):
-                print_grid(example_grid)
-            else:
-                print("Move could not be made. Try again.")
-        
-        # want this to only be printed when nothing else is being printed, so that it doesn't interfere with the other outputs, but for now just print it whenever there's an error in the input format
-        except ValueError:
-            print("Invalid input. Please enter in the format 'row column value'.")
+            row = int(input_func("Enter the row for notes: "))
+            column = int(input_func("Enter the column for notes: "))
+            notes = find_notes(grid, row, column)
+            output_func(f"Notes for cell ({row}, {column}): {notes}")
+        except (ValueError, IndexError):
+            output_func("Invalid input. Please enter valid row and column numbers.")
+        return True
 
+    if command == 'edit notes':
+        try:
+            row = int(input_func("Enter the row for editing notes: "))
+            column = int(input_func("Enter the column for editing notes: "))
+            value = int(input_func("Enter the value to add/remove from notes: "))
+            notes = edit_notes(grid, row, column, value)
+            output_func(f"Updated notes for cell ({row}, {column}): {notes}")
+        except (ValueError, IndexError):
+            output_func("Invalid input. Please enter valid row, column, and value numbers.")
+        return True
+
+    if command == 'find easy move':
+        easy_move = find_easy_move(grid)
+        if easy_move:
+            output_func(f"Easy move found: {easy_move}")
+        else:
+            output_func("No easy move found.")
+        return True
+
+    try:
+        row, column, value = map(int, user_input.split())
+    except ValueError:
+        output_func("Invalid input. Please enter in the format 'row column value'.")
+        return True
+
+    if make_move(grid, row, column, value, move_log):
+        print_grid(grid)
+    else:
+        output_func("Move could not be made. Try again.")
+    return True
+
+def main():
+    grid = copy.deepcopy(example_games.example_grid_1)
+    move_log = []
+
+    while True:
+        print_grid(grid)
+        user_input = input("Enter your move, row column value: ")
+        if not handle_command(grid, move_log, user_input):
+            break
 
 
 
