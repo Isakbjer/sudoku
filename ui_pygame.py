@@ -78,6 +78,14 @@ def _clear_button_rect(panel_top: int) -> pygame.Rect:
     return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, panel_top + 34, 96, BUTTON_SIZE)
 
 
+def _undo_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 232, panel_top + 34, 76, BUTTON_SIZE)
+
+
+def _strict_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 316, panel_top + 34, 84, BUTTON_SIZE)
+
+
 def _difficulty_rect(panel_top: int, label_index: int) -> pygame.Rect:
     left = MARGIN + label_index * 88
     return pygame.Rect(left, panel_top + 84, 80, 28)
@@ -109,8 +117,8 @@ def draw_board_to_surface(
     active_number: Optional[int] = None,
     show_incorrect: bool = False,
     flash_cells: set | None = None,
-    show_notes: bool = False,
     note_mode: bool = False,
+    strict_mode: bool = False,
     browser_index: Optional[int] = None,
     browser_total: Optional[int] = None,
 ) -> pygame.Surface:
@@ -176,7 +184,7 @@ def draw_board_to_surface(
                         color = (180, 30, 30)
                 txt = font.render(str(value), True, color)
                 surface.blit(txt, (rect.x + (CELL - txt.get_width()) // 2, rect.y + (CELL - txt.get_height()) // 2))
-            elif show_notes:
+            else:
                 if hasattr(board, "get_notes"):
                     notes = board.get_notes(r, c)
                 elif hasattr(board, "find_notes"):
@@ -198,7 +206,7 @@ def draw_board_to_surface(
     panel_font = pygame.font.SysFont(None, 22)
     difficulty = getattr(board, "difficulty", None) or "unknown"
     autonote = getattr(board, "autonote", False)
-    status = f"{difficulty} | notes:{'on' if show_notes else 'off'} | pencil:{'on' if note_mode else 'off'} | auto:{'on' if autonote else 'off'}"
+    status = f"{difficulty} | notes:on | pencil:{'on' if note_mode else 'off'} | strict:{'on' if strict_mode else 'off'} | auto:{'on' if autonote else 'off'}"
     if active_number is not None:
         status += f" | active:{active_number}"
     if browser_index is not None and browser_total:
@@ -224,6 +232,18 @@ def draw_board_to_surface(
     pygame.draw.rect(surface, (120, 120, 120), clear_rect, 1, border_radius=6)
     clear_txt = panel_font.render("CLEAR", True, (25, 25, 25))
     surface.blit(clear_txt, (clear_rect.x + (clear_rect.width - clear_txt.get_width()) // 2, clear_rect.y + (clear_rect.height - clear_txt.get_height()) // 2))
+
+    undo_rect = _undo_button_rect(panel_top)
+    pygame.draw.rect(surface, COLOR_BUTTON, undo_rect, border_radius=6)
+    pygame.draw.rect(surface, (120, 120, 120), undo_rect, 1, border_radius=6)
+    undo_txt = panel_font.render("UNDO", True, (25, 25, 25))
+    surface.blit(undo_txt, (undo_rect.x + (undo_rect.width - undo_txt.get_width()) // 2, undo_rect.y + (undo_rect.height - undo_txt.get_height()) // 2))
+
+    strict_rect = _strict_button_rect(panel_top)
+    pygame.draw.rect(surface, COLOR_BUTTON_ACTIVE if strict_mode else COLOR_BUTTON, strict_rect, border_radius=6)
+    pygame.draw.rect(surface, (120, 120, 120), strict_rect, 1, border_radius=6)
+    strict_txt = panel_font.render("STRICT", True, (25, 25, 25))
+    surface.blit(strict_txt, (strict_rect.x + (strict_rect.width - strict_txt.get_width()) // 2, strict_rect.y + (strict_rect.height - strict_txt.get_height()) // 2))
 
     prev_rect = _browse_prev_rect(panel_top)
     next_rect = _browse_next_rect(panel_top)
@@ -254,8 +274,8 @@ def run(board):
     selected: Tuple[int, int] | None = None
     active_number: Optional[int] = None
     show_incorrect = False
-    show_notes = False
     note_mode = False
+    strict_mode = False
     flash_cells = set()
     flash_end = 0
     puzzle_cache = puzzle_loader.load_cached_puzzles()
@@ -270,7 +290,7 @@ def run(board):
         difficulty = getattr(board, "difficulty", None) or "unknown"
         autonote = getattr(board, "autonote", False)
         pygame.display.set_caption(
-            f"Sudoku [{difficulty}] | notes:{'on' if show_notes else 'off'} | pencil:{'on' if note_mode else 'off'} | auto:{'on' if autonote else 'off'}"
+            f"Sudoku [{difficulty}] | notes:on | pencil:{'on' if note_mode else 'off'} | strict:{'on' if strict_mode else 'off'} | auto:{'on' if autonote else 'off'}"
         )
 
     def load_difficulty(difficulty: str):
@@ -351,7 +371,7 @@ def run(board):
         if not main.is_solved_grid(grid):
             return
         difficulty = getattr(board, "difficulty", None) or "unknown"
-        helped = bool(show_notes or note_mode or (hasattr(board, "autonote") and not board.autonote))
+        helped = bool(note_mode or (hasattr(board, "autonote") and board.autonote) or not strict_mode)
         elapsed = monotonic() - puzzle_started_at
         performance_stats.record_leaderboard_entry(
             difficulty=difficulty,
@@ -365,10 +385,21 @@ def run(board):
         load_puzzle(puzzle_cache[0])
 
     def place_number(row: int, column: int, number: int):
-        if hasattr(board, "try_move"):
-            return board.try_move(row, column, number)
-        success = board.make_move(row, column, number)
-        return success, []
+        if strict_mode:
+            if hasattr(board, "try_move"):
+                return board.try_move(row, column, number)
+            success = board.make_move(row, column, number)
+            return success, []
+
+        if hasattr(board, "find_conflicts"):
+            conflicts = board.find_conflicts(row, column, number)
+        else:
+            conflicts = main.find_conflicts(grid, row, column, number)
+        if hasattr(board, "force_move"):
+            success = board.force_move(row, column, number)
+        else:
+            success = board.make_move(row, column, number)
+        return success, conflicts
 
     def toggle_note(row: int, column: int, number: int):
         if hasattr(board, "toggle_note"):
@@ -404,6 +435,9 @@ def run(board):
                             if not ok and conflicts:
                                 flash_cells = set(conflicts)
                                 flash_end = pygame.time.get_ticks() + 450
+                            elif conflicts:
+                                flash_cells = set(conflicts)
+                                flash_end = pygame.time.get_ticks() + 450
                             else:
                                 flash_cells = set()
                     elif value is not None:
@@ -435,6 +469,11 @@ def run(board):
                     elif _clear_button_rect(panel_top).collidepoint(ev.pos):
                         active_number = None
                         update_caption()
+                    elif _undo_button_rect(panel_top).collidepoint(ev.pos):
+                        board.undo()
+                    elif _strict_button_rect(panel_top).collidepoint(ev.pos):
+                        strict_mode = not strict_mode
+                        update_caption()
 
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
@@ -456,6 +495,9 @@ def run(board):
                         if not ok and conflicts:
                             flash_cells = set(conflicts)
                             flash_end = pygame.time.get_ticks() + 450
+                        elif conflicts:
+                            flash_cells = set(conflicts)
+                            flash_end = pygame.time.get_ticks() + 450
                     else:
                         active_number = None if active_number == number else number
                         update_caption()
@@ -470,10 +512,10 @@ def run(board):
                     show_incorrect = not show_incorrect
                     update_caption()
                 elif ev.key == pygame.K_n:
-                    show_notes = not show_notes
+                    note_mode = not note_mode
                     update_caption()
                 elif ev.key == pygame.K_p:
-                    note_mode = not note_mode
+                    strict_mode = not strict_mode
                     update_caption()
                 elif ev.key == pygame.K_a and hasattr(board, "toggle_autonote"):
                     board.toggle_autonote()
@@ -505,8 +547,8 @@ def run(board):
             active_number=active_number,
             show_incorrect=show_incorrect,
             flash_cells=flash_cells,
-            show_notes=show_notes,
             note_mode=note_mode,
+            strict_mode=strict_mode,
             browser_index=puzzle_index if puzzle_cache else None,
             browser_total=len(puzzle_cache) if puzzle_cache else None,
         )

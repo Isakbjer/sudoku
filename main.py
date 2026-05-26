@@ -86,6 +86,26 @@ def find_easy_move(grid: List[List[Optional[int]]]) -> Optional[Tuple[int, int, 
     return None
 
 
+def find_conflicts(grid: List[List[Optional[int]]], row: int, column: int, value: int) -> List[Tuple[int, int]]:
+    n = len(grid)
+    conflicts: Set[Tuple[int, int]] = set()
+    for c in range(n):
+        if grid[row][c] == value:
+            conflicts.add((row, c))
+    for r in range(n):
+        if grid[r][column] == value:
+            conflicts.add((r, column))
+    block = int(n**0.5)
+    br = (row // block) * block
+    bc = (column // block) * block
+    for r in range(br, br + block):
+        for c in range(bc, bc + block):
+            if grid[r][c] == value:
+                conflicts.add((r, c))
+    conflicts.discard((row, column))
+    return sorted(conflicts)
+
+
 def is_solved_grid(grid: List[List[Optional[int]]]) -> bool:
     n = len(grid)
     if any(cell is None for row in grid for cell in row):
@@ -251,6 +271,9 @@ class Board:
                 if self.grid[r][c] is None:
                     self.auto_notes[(r, c)] = find_notes(self.grid, r, c)
 
+    def find_conflicts(self, row: int, column: int, value: int) -> List[Tuple[int, int]]:
+        return find_conflicts(self.grid, row, column, value)
+
     def get_notes(self, row: int, column: int) -> Set[int]:
         return self.find_notes(row, column)
 
@@ -288,6 +311,48 @@ class Board:
             self.recompute_notes()
         return self.autonote
 
+    def _apply_placement(self, row: int, column: int, value: int) -> None:
+        old_value = self.grid[row][column]
+        affected = self._affected_cells(row, column)
+        snapshot = {
+            'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
+            'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
+        }
+        self.grid[row][column] = value if value not in (None, 0) else None
+        # The target cell is no longer a note cell after placement/clear.
+        self.auto_notes.pop((row, column), None)
+        self.manual_notes.pop((row, column), None)
+        if value in (None, 0):
+            if self.autonote:
+                self.recompute_notes()
+        else:
+            for key in affected:
+                if key == (row, column):
+                    continue
+                auto_notes = self.auto_notes.get(key, set())
+                auto_notes.discard(value)
+                if auto_notes:
+                    self.auto_notes[key] = auto_notes
+                elif key in self.auto_notes:
+                    del self.auto_notes[key]
+                manual_notes = self.manual_notes.get(key, set())
+                manual_notes.discard(value)
+                if manual_notes:
+                    self.manual_notes[key] = manual_notes
+                elif key in self.manual_notes:
+                    del self.manual_notes[key]
+
+        self.move_log.append(('composite', [('cell', row, column, old_value, None if value in (None, 0) else value), ('notes_snapshot', snapshot)]))
+
+    def force_move(self, row: int, column: int, value: int) -> bool:
+        n = len(self.grid)
+        if not (0 <= row < n and 0 <= column < n):
+            return False
+        if (row, column) in self.givens:
+            return False
+        self._apply_placement(row, column, value)
+        return True
+
     def try_move(self, row: int, column: int, value: int) -> Tuple[bool, List[Tuple[int, int]]]:
         """Attempt a move and return (success, conflicts).
 
@@ -301,62 +366,13 @@ class Board:
             return False, [(row, column)]
         # clearing cell
         if value is None or value == 0:
-            old_value = self.grid[row][column]
-            # snapshot notes for affected cells
-            affected = self._affected_cells(row, column)
-            snapshot = {
-                'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
-                'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
-            }
-            # apply change
-            self.grid[row][column] = None
-            if self.autonote:
-                self.recompute_notes()
-            self.move_log.append(('composite', [('cell', row, column, old_value, None), ('notes_snapshot', snapshot)]))
+            self._apply_placement(row, column, 0)
             return True, []
 
-        # check conflicts
-        conflicts: List[Tuple[int, int]] = []
-        # row
-        for c in range(len(self.grid[0])):
-            if self.grid[row][c] == value:
-                conflicts.append((row, c))
-        # column
-        for r in range(len(self.grid)):
-            if self.grid[r][column] == value:
-                conflicts.append((r, column))
-        # box
-        block = int(len(self.grid) ** 0.5)
-        br = (row // block) * block
-        bc = (column // block) * block
-        for r in range(br, br + block):
-            for c in range(bc, bc + block):
-                if self.grid[r][c] == value:
-                    conflicts.append((r, c))
-        # remove duplicates and ignore the target cell itself
-        conflicts = [p for p in set(conflicts) if p != (row, column)]
+        conflicts = find_conflicts(self.grid, row, column, value)
         if conflicts:
             return False, conflicts
-
-        # perform move and record note snapshots for undo
-        old_value = self.grid[row][column]
-        affected = self._affected_cells(row, column)
-        snapshot = {
-            'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
-            'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
-        }
-        self.grid[row][column] = value
-        if (row, column) in self.manual_notes:
-            del self.manual_notes[(row, column)]
-        if self.autonote:
-            # remove this value from notes in affected cells
-            for k in affected:
-                s = self.auto_notes.get(k, set())
-                if value in s:
-                    s.discard(value)
-                    self.auto_notes[k] = s
-        # push composite entry
-        self.move_log.append(('composite', [('cell', row, column, old_value, value), ('notes_snapshot', snapshot)]))
+        self._apply_placement(row, column, value)
         return True, []
 
     def _affected_cells(self, row: int, column: int) -> Set[Tuple[int, int]]:

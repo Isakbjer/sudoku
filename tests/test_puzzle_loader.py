@@ -83,6 +83,13 @@ class TestPuzzleLoader(unittest.TestCase):
         self.assertTrue(board.undo())
         self.assertEqual(board.find_notes(0, 0), {1})
 
+    def test_force_move_prunes_notes_without_autonote(self):
+        board = main.Board(example_games.example_grid_1)
+        board.autonote = False
+        board.manual_notes[(0, 1)] = {1, 5}
+        board.force_move(0, 0, 1)
+        self.assertNotIn(1, board.manual_notes.get((0, 1), set()))
+
     def test_cache_roundtrip(self):
         with TemporaryDirectory() as tmpdir:
             cache_path = Path(tmpdir) / "puzzles.json"
