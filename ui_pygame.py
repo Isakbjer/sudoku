@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import pygame
 import example_games
+import puzzle_loader
 from typing import Tuple
 
 CELL = 50
@@ -16,6 +17,7 @@ MARGIN = 20
 LINE_WIDTH = 2
 THICK_LINE = 4
 FONT_SIZE = 28
+NOTE_FONT_SIZE = 12
 
 
 def _init_pygame():
@@ -25,7 +27,7 @@ def _init_pygame():
 
 
 def draw_board_to_surface(board, selected: Tuple[int, int] | None = None, show_incorrect: bool = False,
-                          flash_cells: set | None = None) -> pygame.Surface:
+                          flash_cells: set | None = None, show_notes: bool = False) -> pygame.Surface:
     """Render the board to a Surface and return it. Headless-friendly.
 
     `board` may be either the `Board` instance from `main.py` or a raw
@@ -41,6 +43,7 @@ def draw_board_to_surface(board, selected: Tuple[int, int] | None = None, show_i
 
     # draw cells and numbers
     font = pygame.font.SysFont(None, FONT_SIZE)
+    note_font = pygame.font.SysFont(None, NOTE_FONT_SIZE)
     for r in range(n):
         for c in range(n):
             x = MARGIN + c * CELL
@@ -68,6 +71,14 @@ def draw_board_to_surface(board, selected: Tuple[int, int] | None = None, show_i
                 tx = x + (CELL - txt.get_width()) // 2
                 ty = y + (CELL - txt.get_height()) // 2
                 surface.blit(txt, (tx, ty))
+            elif show_notes and hasattr(board, 'find_notes'):
+                notes = board.find_notes(r, c)
+                if notes:
+                    notes_text = ''.join(str(num) for num in sorted(notes))
+                    txt = note_font.render(notes_text, True, (120, 120, 120))
+                    tx = x + (CELL - txt.get_width()) // 2
+                    ty = y + (CELL - txt.get_height()) // 2
+                    surface.blit(txt, (tx, ty))
 
     # grid lines
     for i in range(n + 1):
@@ -86,15 +97,44 @@ def run(board):
     n = len(grid)
     size = CELL * n + MARGIN * 2
     screen = pygame.display.set_mode((size, size))
-    pygame.display.set_caption('Sudoku')
     clock = pygame.time.Clock()
 
     selected = (0, 0)
     show_incorrect = False
+    show_notes = False
     flash_cells = set()
     flash_end = 0
 
+    def update_caption():
+        difficulty = getattr(board, 'difficulty', None) or 'unknown'
+        autonote = getattr(board, 'autonote', False)
+        pygame.display.set_caption(
+            f'Sudoku [{difficulty}] | notes:{"on" if show_notes else "off"} | auto:{"on" if autonote else "off"} | '
+            f'N notes, A auto, I incorrect, E/M/H load, L reload, U undo'
+        )
+
+    def load_difficulty(difficulty: str):
+        nonlocal selected, flash_cells, flash_end
+        difficulty = (difficulty or 'easy').lower()
+        if difficulty not in {'easy', 'medium', 'hard'}:
+            difficulty = 'easy'
+        try:
+            puzzle = puzzle_loader.download_puzzle(difficulty=difficulty)
+        except Exception as exc:
+            print(f'Failed to load puzzle ({difficulty}): {exc}')
+            return
+        if hasattr(board, 'load_grid'):
+            board.load_grid(puzzle.grid, difficulty=puzzle.difficulty, source=puzzle.source, solution=puzzle.solution)
+        else:
+            print('Board does not support puzzle loading.')
+            return
+        selected = (0, 0)
+        flash_cells = set()
+        flash_end = 0
+        update_caption()
+
     running = True
+    update_caption()
     while running:
         for ev in pygame.event.get():
             if ev.type == pygame.QUIT:
@@ -131,12 +171,27 @@ def run(board):
                     board.undo()
                 elif ev.key == pygame.K_i:
                     show_incorrect = not show_incorrect
+                    update_caption()
+                elif ev.key == pygame.K_n:
+                    show_notes = not show_notes
+                    update_caption()
+                elif ev.key == pygame.K_a and hasattr(board, 'toggle_autonote'):
+                    board.toggle_autonote()
+                    update_caption()
+                elif ev.key == pygame.K_l:
+                    load_difficulty(getattr(board, 'difficulty', 'easy') or 'easy')
+                elif ev.key == pygame.K_e:
+                    load_difficulty('easy')
+                elif ev.key == pygame.K_m:
+                    load_difficulty('medium')
+                elif ev.key == pygame.K_h:
+                    load_difficulty('hard')
 
         # update flash state
         if flash_end and pygame.time.get_ticks() > flash_end:
             flash_cells = set()
             flash_end = 0
-        surf = draw_board_to_surface(board, selected, show_incorrect, flash_cells)
+        surf = draw_board_to_surface(board, selected, show_incorrect, flash_cells, show_notes)
         screen.blit(surf, (0, 0))
         pygame.display.flip()
         clock.tick(30)

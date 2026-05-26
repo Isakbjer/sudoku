@@ -149,8 +149,12 @@ def empty_cell(grid: List[List[Optional[int]]], row: int, column: int,
 class Board:
     """Simple OO wrapper around the grid and its move log."""
 
-    def __init__(self, grid: List[List[Optional[int]]]):
+    def __init__(self, grid: List[List[Optional[int]]], difficulty: Optional[str] = None,
+                 source: Optional[str] = None, solution: Optional[List[List[Optional[int]]]] = None):
         self.grid = copy.deepcopy(grid)
+        self.solution = copy.deepcopy(solution) if solution is not None else None
+        self.difficulty = difficulty
+        self.source = source
         # move_log entries: legacy tuples (r,c,old,new) or composite
         # ('composite', [ ('cell', r,c,old,new), ('notes_snapshot', {(r,c): set(...)}) ])
         self.move_log: List = []
@@ -166,6 +170,23 @@ class Board:
         self.autonote: bool = True
         if self.autonote:
             self.recompute_notes()
+
+    def load_grid(self, grid: List[List[Optional[int]]], difficulty: Optional[str] = None,
+                  source: Optional[str] = None, solution: Optional[List[List[Optional[int]]]] = None) -> None:
+        self.grid = copy.deepcopy(grid)
+        self.solution = copy.deepcopy(solution) if solution is not None else None
+        self.difficulty = difficulty
+        self.source = source
+        self.move_log = []
+        self.givens = set()
+        n = len(self.grid)
+        for r in range(n):
+            for c in range(len(self.grid[0])):
+                if self.grid[r][c] is not None:
+                    self.givens.add((r, c))
+        self.notes = {}
+        self.autonote = True
+        self.recompute_notes()
 
     def get_grid_copy(self) -> List[List[Optional[int]]]:
         return copy.deepcopy(self.grid)
@@ -205,6 +226,12 @@ class Board:
             for c in range(n):
                 if self.grid[r][c] is None:
                     self.notes[(r, c)] = find_notes(self.grid, r, c)
+
+    def toggle_autonote(self) -> bool:
+        self.autonote = not self.autonote
+        if self.autonote:
+            self.recompute_notes()
+        return self.autonote
 
     def try_move(self, row: int, column: int, value: int) -> Tuple[bool, List[Tuple[int, int]]]:
         """Attempt a move and return (success, conflicts).
@@ -359,15 +386,19 @@ def handle_command(obj, move_log, user_input, input_func=input, output_func=prin
         return True
 
     if command == 'undo':
-        if not undo_move(grid, history):
-            output_func("No moves to undo.")
+        if board is not None:
+            if not board.undo():
+                output_func("No moves to undo.")
+        else:
+            if not undo_move(grid, history):
+                output_func("No moves to undo.")
         return True
 
     if command == 'notes':
         try:
             row = int(input_func("Enter the row for notes: "))
             column = int(input_func("Enter the column for notes: "))
-            notes = find_notes(grid, row, column)
+            notes = board.find_notes(row, column) if board is not None else find_notes(grid, row, column)
             output_func(f"Notes for cell ({row}, {column}): {notes}")
         except (ValueError, IndexError):
             output_func("Invalid input. Please enter valid row and column numbers.")
@@ -378,7 +409,7 @@ def handle_command(obj, move_log, user_input, input_func=input, output_func=prin
             row = int(input_func("Enter the row for editing notes: "))
             column = int(input_func("Enter the column for editing notes: "))
             value = int(input_func("Enter the value to add/remove from notes: "))
-            notes = edit_notes(grid, row, column, value)
+            notes = board.edit_notes(row, column, value) if board is not None else edit_notes(grid, row, column, value)
             output_func(f"Updated notes for cell ({row}, {column}): {notes}")
         except (ValueError, IndexError):
             output_func("Invalid input. Please enter valid row, column, and value numbers.")
@@ -398,15 +429,21 @@ def handle_command(obj, move_log, user_input, input_func=input, output_func=prin
         output_func("Invalid input. Please enter in the format 'row column value'.")
         return True
 
-    if make_move(grid, row, column, value, history):
-        print_grid(grid)
+    if board is not None:
+        if board.make_move(row, column, value):
+            board.print_grid()
+        else:
+            output_func("Move could not be made. Try again.")
     else:
-        output_func("Move could not be made. Try again.")
+        if make_move(grid, row, column, value, history):
+            print_grid(grid)
+        else:
+            output_func("Move could not be made. Try again.")
     return True
 
 
 def main() -> None:
-    board = Board(example_games.example_grid_1)
+    board = Board(example_games.example_grid_1, difficulty="example", source="built-in")
 
     print("Loaded example grid. Type 'help' for commands.")
     while True:
