@@ -1,5 +1,6 @@
 import io
 import json
+import socket
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -55,6 +56,11 @@ class TestPuzzleLoader(unittest.TestCase):
         self.assertEqual(puzzle.difficulty, "Medium")
         self.assertEqual(puzzle.grid[0][0], 1)
         self.assertIsNone(puzzle.grid[0][1])
+
+    def test_download_puzzle_timeout_is_wrapped(self):
+        with patch("puzzle_loader.urlopen", side_effect=socket.timeout):
+            with self.assertRaises(RuntimeError):
+                puzzle_loader.download_puzzle("easy", timeout=0.01)
 
     def test_board_load_grid_resets_state(self):
         board = main.Board([[None, None], [None, None]], difficulty="example")

@@ -86,6 +86,29 @@ def find_easy_move(grid: List[List[Optional[int]]]) -> Optional[Tuple[int, int, 
     return None
 
 
+def is_solved_grid(grid: List[List[Optional[int]]]) -> bool:
+    n = len(grid)
+    if any(cell is None for row in grid for cell in row):
+        return False
+    expected = set(range(1, n + 1))
+    for row in range(n):
+        if set(grid[row]) != expected:
+            return False
+    for column in range(n):
+        if set(get_column_view(grid, column)) != expected:
+            return False
+    block = int(n**0.5)
+    for br in range(0, n, block):
+        for bc in range(0, n, block):
+            values = set()
+            for r in range(br, br + block):
+                for c in range(bc, bc + block):
+                    values.add(grid[r][c])
+            if values != expected:
+                return False
+    return True
+
+
 def is_valid_move(grid: List[List[Optional[int]]], row: int, column: int, value: int) -> bool:
     n = len(grid)
     if not (0 <= row < n and 0 <= column < n):

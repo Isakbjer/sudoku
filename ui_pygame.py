@@ -7,12 +7,15 @@ renders the current board onto a pygame.Surface (useful for testing), and a
 from __future__ import annotations
 
 import os
+from time import monotonic
 from typing import Optional, Tuple
 
 import example_games
 import pygame
 
+import main
 import puzzle_loader
+import performance_stats
 
 
 CELL = 50
@@ -21,7 +24,6 @@ LINE_WIDTH = 2
 THICK_LINE = 4
 FONT_SIZE = 28
 NOTE_FONT_SIZE = 12
-PANEL_HEIGHT = 120
 PANEL_HEIGHT = 220
 BUTTON_SIZE = 34
 BUTTON_GAP = 8
@@ -258,6 +260,8 @@ def run(board):
     flash_end = 0
     puzzle_cache = puzzle_loader.load_cached_puzzles()
     puzzle_index = 0
+    puzzle_started_at = monotonic()
+    completion_recorded = False
 
     def current_grid():
         return _grid(board)
@@ -270,7 +274,7 @@ def run(board):
         )
 
     def load_difficulty(difficulty: str):
-        nonlocal selected, active_number, flash_cells, flash_end, puzzle_cache, puzzle_index
+        nonlocal selected, active_number, flash_cells, flash_end, puzzle_cache, puzzle_index, puzzle_started_at, completion_recorded
         difficulty = (difficulty or "easy").lower()
         if difficulty not in {"easy", "medium", "hard"}:
             difficulty = "easy"
@@ -278,7 +282,18 @@ def run(board):
             puzzle = puzzle_loader.download_puzzle(difficulty=difficulty)
         except Exception as exc:
             print(f"Failed to load puzzle ({difficulty}): {exc}")
-            return
+            cached = [p for p in puzzle_loader.load_cached_puzzles() if p.difficulty.lower() == difficulty]
+            if cached:
+                puzzle = cached[0]
+                print(f"Loaded cached {difficulty} puzzle instead.")
+            else:
+                print("Falling back to the built-in example puzzle.")
+                puzzle = puzzle_loader.Puzzle(
+                    grid=example_games.example_grid_1,
+                    difficulty="example",
+                    source="built-in",
+                    solution=None,
+                )
         if hasattr(board, "load_grid"):
             board.load_grid(puzzle.grid, difficulty=puzzle.difficulty, source=puzzle.source, solution=puzzle.solution)
         else:
@@ -290,16 +305,20 @@ def run(board):
         flash_end = 0
         puzzle_cache = puzzle_loader.load_cached_puzzles()
         puzzle_index = 0 if puzzle_cache else -1
+        puzzle_started_at = monotonic()
+        completion_recorded = False
         update_caption()
 
     def load_puzzle(puzzle):
-        nonlocal selected, active_number, flash_cells, flash_end
+        nonlocal selected, active_number, flash_cells, flash_end, puzzle_started_at, completion_recorded
         if hasattr(board, "load_grid"):
             board.load_grid(puzzle.grid, difficulty=puzzle.difficulty, source=puzzle.source, solution=puzzle.solution)
         selected = None
         active_number = None
         flash_cells = set()
         flash_end = 0
+        puzzle_started_at = monotonic()
+        completion_recorded = False
         update_caption()
 
     def load_cached_puzzle(offset: int) -> None:
@@ -323,6 +342,24 @@ def run(board):
         puzzle_index = 0 if puzzle_cache else -1
         if puzzle_cache:
             load_puzzle(puzzle_cache[0])
+
+    def record_completion_if_solved() -> None:
+        nonlocal completion_recorded
+        if completion_recorded:
+            return
+        grid = current_grid()
+        if not main.is_solved_grid(grid):
+            return
+        difficulty = getattr(board, "difficulty", None) or "unknown"
+        helped = bool(show_notes or note_mode or (hasattr(board, "autonote") and not board.autonote))
+        elapsed = monotonic() - puzzle_started_at
+        performance_stats.record_leaderboard_entry(
+            difficulty=difficulty,
+            helped=helped,
+            time_seconds=elapsed,
+            puzzle_source=getattr(board, "source", "unknown") or "unknown",
+        )
+        completion_recorded = True
 
     if puzzle_cache:
         load_puzzle(puzzle_cache[0])
@@ -459,6 +496,8 @@ def run(board):
         if flash_end and pygame.time.get_ticks() > flash_end:
             flash_cells = set()
             flash_end = 0
+
+        record_completion_if_solved()
 
         surface = draw_board_to_surface(
             board,

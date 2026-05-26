@@ -1,5 +1,6 @@
 .venv/
 .sudoku_cache/
+.sudoku_stats/
 __pycache__/example_games.cpython-310.pyc
 __pycache__/
 *.pyc

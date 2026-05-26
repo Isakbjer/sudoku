@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import csv
 import json
+import socket
 from pathlib import Path
 from typing import Iterable, List, Optional
 from urllib.error import URLError
@@ -76,7 +77,7 @@ def download_puzzle(difficulty: str = "easy", timeout: int = 10) -> Puzzle:
     try:
         with urlopen(request, timeout=timeout) as response:
             payload = json.load(response)
-    except URLError as exc:
+    except (URLError, TimeoutError, socket.timeout) as exc:
         raise RuntimeError(f"Unable to download puzzle: {exc}") from exc
     return parse_api_payload(payload)
 
