@@ -22,8 +22,10 @@ THICK_LINE = 4
 FONT_SIZE = 28
 NOTE_FONT_SIZE = 12
 PANEL_HEIGHT = 120
+PANEL_HEIGHT = 220
 BUTTON_SIZE = 34
 BUTTON_GAP = 8
+BOARD_PANEL_GAP = 14
 
 COLOR_BASE = (250, 250, 250)
 COLOR_SELECTED = (195, 225, 255)
@@ -54,36 +56,41 @@ def _board_size(board) -> int:
 
 def _window_dimensions(board) -> Tuple[int, int]:
     size = CELL * _board_size(board) + MARGIN * 2
-    return size, size + PANEL_HEIGHT
+    return size, size + BOARD_PANEL_GAP + PANEL_HEIGHT
 
 
 def _cell_rect(row: int, column: int) -> pygame.Rect:
     return pygame.Rect(MARGIN + column * CELL, MARGIN + row * CELL, CELL, CELL)
 
 
-def _palette_rect(number: int) -> pygame.Rect:
-    top = MARGIN + CELL * 9 + 24
+def _palette_rect(number: int, panel_top: int) -> pygame.Rect:
+    top = panel_top + 34
     return pygame.Rect(MARGIN + (number - 1) * (BUTTON_SIZE + BUTTON_GAP), top, BUTTON_SIZE, BUTTON_SIZE)
 
 
-def _note_button_rect() -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 16, MARGIN + CELL * 9 + 24, 96, BUTTON_SIZE)
+def _note_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 16, panel_top + 34, 96, BUTTON_SIZE)
 
 
-def _clear_button_rect() -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, MARGIN + CELL * 9 + 24, 96, BUTTON_SIZE)
+def _clear_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, panel_top + 34, 96, BUTTON_SIZE)
 
 
-def _browse_prev_rect() -> pygame.Rect:
-    return pygame.Rect(MARGIN, MARGIN + CELL * 9 + 72, 54, 28)
+def _difficulty_rect(panel_top: int, label_index: int) -> pygame.Rect:
+    left = MARGIN + label_index * 88
+    return pygame.Rect(left, panel_top + 84, 80, 28)
 
 
-def _browse_next_rect() -> pygame.Rect:
-    return pygame.Rect(MARGIN + 62, MARGIN + CELL * 9 + 72, 54, 28)
+def _browse_prev_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN, panel_top + 134, 54, 28)
 
 
-def _refresh_cache_rect() -> pygame.Rect:
-    return pygame.Rect(MARGIN + 124, MARGIN + CELL * 9 + 72, 112, 28)
+def _browse_next_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 62, panel_top + 134, 54, 28)
+
+
+def _refresh_cache_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 124, panel_top + 134, 112, 28)
 
 
 def _move_selection(selected: Tuple[int, int] | None, row_delta: int, column_delta: int, size: int) -> Tuple[int, int]:
@@ -110,7 +117,8 @@ def draw_board_to_surface(
     grid = _grid(board)
     n = len(grid)
     board_size = CELL * n + MARGIN * 2
-    surface = pygame.Surface((board_size, board_size + PANEL_HEIGHT))
+    panel_top = board_size + BOARD_PANEL_GAP
+    surface = pygame.Surface((board_size, board_size + BOARD_PANEL_GAP + PANEL_HEIGHT))
     surface.fill((255, 255, 255))
 
     selected_value = None
@@ -184,7 +192,6 @@ def draw_board_to_surface(
         x = MARGIN + i * CELL
         pygame.draw.line(surface, (0, 0, 0), (x, MARGIN), (x, board_size - MARGIN), lw)
 
-    panel_top = board_size
     pygame.draw.rect(surface, (245, 245, 245), pygame.Rect(0, panel_top, board_size, PANEL_HEIGHT))
     panel_font = pygame.font.SysFont(None, 22)
     difficulty = getattr(board, "difficulty", None) or "unknown"
@@ -198,29 +205,37 @@ def draw_board_to_surface(
     surface.blit(panel_txt, (MARGIN, panel_top + 8))
 
     for number in range(1, 10):
-        rect = _palette_rect(number)
+        rect = _palette_rect(number, panel_top)
         pygame.draw.rect(surface, COLOR_BUTTON_ACTIVE if active_number == number else COLOR_BUTTON, rect, border_radius=6)
         pygame.draw.rect(surface, (120, 120, 120), rect, 1, border_radius=6)
         txt = panel_font.render(str(number), True, (25, 25, 25))
         surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
 
-    note_rect = _note_button_rect()
+    note_rect = _note_button_rect(panel_top)
     pygame.draw.rect(surface, COLOR_BUTTON_NOTE if note_mode else COLOR_BUTTON, note_rect, border_radius=6)
     pygame.draw.rect(surface, (120, 120, 120), note_rect, 1, border_radius=6)
     note_txt = panel_font.render("NOTES", True, (25, 25, 25))
     surface.blit(note_txt, (note_rect.x + (note_rect.width - note_txt.get_width()) // 2, note_rect.y + (note_rect.height - note_txt.get_height()) // 2))
 
-    clear_rect = _clear_button_rect()
+    clear_rect = _clear_button_rect(panel_top)
     pygame.draw.rect(surface, COLOR_BUTTON, clear_rect, border_radius=6)
     pygame.draw.rect(surface, (120, 120, 120), clear_rect, 1, border_radius=6)
     clear_txt = panel_font.render("CLEAR", True, (25, 25, 25))
     surface.blit(clear_txt, (clear_rect.x + (clear_rect.width - clear_txt.get_width()) // 2, clear_rect.y + (clear_rect.height - clear_txt.get_height()) // 2))
 
-    prev_rect = _browse_prev_rect()
-    next_rect = _browse_next_rect()
-    refresh_rect = _refresh_cache_rect()
+    prev_rect = _browse_prev_rect(panel_top)
+    next_rect = _browse_next_rect(panel_top)
+    refresh_rect = _refresh_cache_rect(panel_top)
     for rect, label in ((prev_rect, "<"), (next_rect, ">"), (refresh_rect, "CACHE")):
         pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=6)
+        pygame.draw.rect(surface, (120, 120, 120), rect, 1, border_radius=6)
+        txt = panel_font.render(label, True, (25, 25, 25))
+        surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
+
+    for index, (label, diff) in enumerate((("EASY", "easy"), ("MED", "medium"), ("HARD", "hard"))):
+        rect = _difficulty_rect(panel_top, index)
+        active = difficulty.lower() == diff
+        pygame.draw.rect(surface, COLOR_BUTTON_ACTIVE if active else COLOR_BUTTON, rect, border_radius=6)
         pygame.draw.rect(surface, (120, 120, 120), rect, 1, border_radius=6)
         txt = panel_font.render(label, True, (25, 25, 25))
         surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
@@ -255,7 +270,7 @@ def run(board):
         )
 
     def load_difficulty(difficulty: str):
-        nonlocal selected, active_number, flash_cells, flash_end
+        nonlocal selected, active_number, flash_cells, flash_end, puzzle_cache, puzzle_index
         difficulty = (difficulty or "easy").lower()
         if difficulty not in {"easy", "medium", "hard"}:
             difficulty = "easy"
@@ -273,6 +288,8 @@ def run(board):
         active_number = None
         flash_cells = set()
         flash_end = 0
+        puzzle_cache = puzzle_loader.load_cached_puzzles()
+        puzzle_index = 0 if puzzle_cache else -1
         update_caption()
 
     def load_puzzle(puzzle):
@@ -357,21 +374,28 @@ def run(board):
                     continue
 
                 for number in range(1, 10):
-                    if _palette_rect(number).collidepoint(ev.pos):
+                    if _palette_rect(number, board_size + BOARD_PANEL_GAP).collidepoint(ev.pos):
                         active_number = None if active_number == number else number
                         update_caption()
                         break
                 else:
-                    if _browse_prev_rect().collidepoint(ev.pos):
+                    panel_top = board_size + BOARD_PANEL_GAP
+                    if _browse_prev_rect(panel_top).collidepoint(ev.pos):
                         load_cached_puzzle(-1)
-                    elif _browse_next_rect().collidepoint(ev.pos):
+                    elif _browse_next_rect(panel_top).collidepoint(ev.pos):
                         load_cached_puzzle(1)
-                    elif _refresh_cache_rect().collidepoint(ev.pos):
+                    elif _refresh_cache_rect(panel_top).collidepoint(ev.pos):
                         refresh_cache()
-                    elif _note_button_rect().collidepoint(ev.pos):
+                    elif _difficulty_rect(panel_top, 0).collidepoint(ev.pos):
+                        load_difficulty("easy")
+                    elif _difficulty_rect(panel_top, 1).collidepoint(ev.pos):
+                        load_difficulty("medium")
+                    elif _difficulty_rect(panel_top, 2).collidepoint(ev.pos):
+                        load_difficulty("hard")
+                    elif _note_button_rect(panel_top).collidepoint(ev.pos):
                         note_mode = not note_mode
                         update_caption()
-                    elif _clear_button_rect().collidepoint(ev.pos):
+                    elif _clear_button_rect(panel_top).collidepoint(ev.pos):
                         active_number = None
                         update_caption()
 
