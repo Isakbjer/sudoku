@@ -3,6 +3,7 @@ import json
 import unittest
 from unittest.mock import patch
 
+import example_games
 import main
 import puzzle_loader
 
@@ -56,6 +57,7 @@ class TestPuzzleLoader(unittest.TestCase):
     def test_board_load_grid_resets_state(self):
         board = main.Board([[None, None], [None, None]], difficulty="example")
         board.make_move(0, 0, 1)
+        board.toggle_note(0, 1, 2)
         self.assertTrue(board.move_log)
 
         board.load_grid([[3, None], [None, 4]], difficulty="hard", source="api")
@@ -64,6 +66,14 @@ class TestPuzzleLoader(unittest.TestCase):
         self.assertEqual(board.move_log, [])
         self.assertIn((0, 0), board.givens)
         self.assertNotIn((0, 1), board.givens)
+        self.assertEqual(board.manual_notes, {})
+
+    def test_toggle_note_and_undo(self):
+        board = main.Board(example_games.example_grid_1)
+        self.assertTrue(board.toggle_note(0, 0, 2))
+        self.assertEqual(board.find_notes(0, 0), {1, 2})
+        self.assertTrue(board.undo())
+        self.assertEqual(board.find_notes(0, 0), {1})
 
 
 if __name__ == "__main__":

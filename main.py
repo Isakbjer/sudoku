@@ -165,8 +165,9 @@ class Board:
             for c in range(len(self.grid[0])):
                 if self.grid[r][c] is not None:
                     self.givens.add((r, c))
-        # notes stores user/autonotes per cell
-        self.notes: Dict[Tuple[int, int], Set[int]] = {}
+        # auto_notes are computed candidates; manual_notes are user pencil marks.
+        self.auto_notes: Dict[Tuple[int, int], Set[int]] = {}
+        self.manual_notes: Dict[Tuple[int, int], Set[int]] = {}
         self.autonote: bool = True
         if self.autonote:
             self.recompute_notes()
@@ -184,7 +185,8 @@ class Board:
             for c in range(len(self.grid[0])):
                 if self.grid[r][c] is not None:
                     self.givens.add((r, c))
-        self.notes = {}
+        self.auto_notes = {}
+        self.manual_notes = {}
         self.autonote = True
         self.recompute_notes()
 
@@ -204,11 +206,10 @@ class Board:
         return get_box_view(self.grid, row, column)
 
     def find_notes(self, row: int, column: int) -> Set[int]:
-        # prefer persistent notes if present, otherwise compute
         key = (row, column)
-        if key in self.notes:
-            return set(self.notes[key])
-        return find_notes(self.grid, row, column)
+        notes = set(self.auto_notes.get(key, set()))
+        notes.update(self.manual_notes.get(key, set()))
+        return notes
 
     def edit_notes(self, row: int, column: int, value: int) -> Set[int]:
         return edit_notes(self.grid, row, column, value)
@@ -220,12 +221,43 @@ class Board:
         return is_valid_move(self.grid, row, column, value)
 
     def recompute_notes(self) -> None:
-        self.notes = {}
+        self.auto_notes = {}
         n = len(self.grid)
         for r in range(n):
             for c in range(n):
                 if self.grid[r][c] is None:
-                    self.notes[(r, c)] = find_notes(self.grid, r, c)
+                    self.auto_notes[(r, c)] = find_notes(self.grid, r, c)
+
+    def get_notes(self, row: int, column: int) -> Set[int]:
+        return self.find_notes(row, column)
+
+    def toggle_note(self, row: int, column: int, value: int) -> bool:
+        """Toggle a pencil mark in an empty, editable cell.
+
+        Returns True when a note was toggled, False when the target cell is
+        not editable.
+        """
+        n = len(self.grid)
+        if not (0 <= row < n and 0 <= column < n):
+            return False
+        if (row, column) in self.givens or self.grid[row][column] is not None:
+            return False
+
+        key = (row, column)
+        before = set(self.manual_notes.get(key, set()))
+        after = set(before)
+        if value in after:
+            after.remove(value)
+        else:
+            after.add(value)
+
+        if after:
+            self.manual_notes[key] = after
+        elif key in self.manual_notes:
+            del self.manual_notes[key]
+
+        self.move_log.append(('note', row, column, before, after))
+        return True
 
     def toggle_autonote(self) -> bool:
         self.autonote = not self.autonote
@@ -249,7 +281,10 @@ class Board:
             old_value = self.grid[row][column]
             # snapshot notes for affected cells
             affected = self._affected_cells(row, column)
-            snapshot = {k: set(self.notes.get(k, set())) for k in affected}
+            snapshot = {
+                'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
+                'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
+            }
             # apply change
             self.grid[row][column] = None
             if self.autonote:
@@ -283,15 +318,20 @@ class Board:
         # perform move and record note snapshots for undo
         old_value = self.grid[row][column]
         affected = self._affected_cells(row, column)
-        snapshot = {k: set(self.notes.get(k, set())) for k in affected}
+        snapshot = {
+            'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
+            'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
+        }
         self.grid[row][column] = value
+        if (row, column) in self.manual_notes:
+            del self.manual_notes[(row, column)]
         if self.autonote:
             # remove this value from notes in affected cells
             for k in affected:
-                s = self.notes.get(k, set())
+                s = self.auto_notes.get(k, set())
                 if value in s:
                     s.discard(value)
-                    self.notes[k] = s
+                    self.auto_notes[k] = s
         # push composite entry
         self.move_log.append(('composite', [('cell', row, column, old_value, value), ('notes_snapshot', snapshot)]))
         return True, []
@@ -326,6 +366,13 @@ class Board:
         if not self.move_log:
             return False
         entry = self.move_log.pop()
+        if isinstance(entry, tuple) and entry and entry[0] == 'note':
+            _, r, c, before, after = entry
+            if before:
+                self.manual_notes[(r, c)] = set(before)
+            elif (r, c) in self.manual_notes:
+                del self.manual_notes[(r, c)]
+            return True
         if isinstance(entry, tuple) and entry and entry[0] == 'composite':
             ops = entry[1]
             # apply ops in reverse
@@ -335,11 +382,24 @@ class Board:
                     self.grid[r][c] = old
                 elif op[0] == 'notes_snapshot':
                     _, snapshot = op
-                    for k, s in snapshot.items():
+                    auto_snapshot = snapshot.get('auto', {})
+                    manual_snapshot = snapshot.get('manual', {})
+                    for k, s in auto_snapshot.items():
                         if s:
-                            self.notes[k] = set(s)
-                        elif k in self.notes:
-                            del self.notes[k]
+                            self.auto_notes[k] = set(s)
+                        elif k in self.auto_notes:
+                            del self.auto_notes[k]
+                    for k, s in manual_snapshot.items():
+                        if s:
+                            self.manual_notes[k] = set(s)
+                        elif k in self.manual_notes:
+                            del self.manual_notes[k]
+                elif op[0] == 'note':
+                    _, r, c, before, after = op
+                    if before:
+                        self.manual_notes[(r, c)] = set(before)
+                    elif (r, c) in self.manual_notes:
+                        del self.manual_notes[(r, c)]
             return True
         # legacy tuple handling
         if isinstance(entry, tuple) and len(entry) == 4:
