@@ -103,6 +103,14 @@ def _refresh_cache_rect(panel_top: int) -> pygame.Rect:
     return pygame.Rect(MARGIN + 124, panel_top + 134, 112, 28)
 
 
+def _help_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 244, panel_top + 134, 84, 28)
+
+
+def _leaderboard_button_rect(panel_top: int) -> pygame.Rect:
+    return pygame.Rect(MARGIN + 336, panel_top + 134, 124, 28)
+
+
 def _move_selection(selected: Tuple[int, int] | None, row_delta: int, column_delta: int, size: int) -> Tuple[int, int]:
     if selected is None:
         return (0, 0)
@@ -119,6 +127,8 @@ def draw_board_to_surface(
     flash_cells: set | None = None,
     note_mode: bool = False,
     strict_mode: bool = False,
+    help_mode: bool = False,
+    leaderboard_visible: bool = False,
     browser_index: Optional[int] = None,
     browser_total: Optional[int] = None,
 ) -> pygame.Surface:
@@ -177,7 +187,9 @@ def draw_board_to_surface(
             value = grid[r][c]
             if value is not None:
                 color = (20, 20, 20)
-                if hasattr(board, "givens") and (r, c) not in getattr(board, "givens", set()):
+                if hasattr(board, "is_player_cell") and board.is_player_cell(r, c):
+                    color = (10, 50, 120)
+                elif hasattr(board, "is_given") and not board.is_given(r, c):
                     color = (10, 50, 120)
                 if show_incorrect and hasattr(board, "is_valid_move"):
                     if not board.is_valid_move(r, c, value) and (r, c) not in getattr(board, "givens", set()):
@@ -254,6 +266,18 @@ def draw_board_to_surface(
         txt = panel_font.render(label, True, (25, 25, 25))
         surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
 
+    help_rect = _help_button_rect(panel_top)
+    pygame.draw.rect(surface, COLOR_BUTTON_ACTIVE if help_mode else COLOR_BUTTON, help_rect, border_radius=6)
+    pygame.draw.rect(surface, (120, 120, 120), help_rect, 1, border_radius=6)
+    help_txt = panel_font.render("HELP", True, (25, 25, 25))
+    surface.blit(help_txt, (help_rect.x + (help_rect.width - help_txt.get_width()) // 2, help_rect.y + (help_rect.height - help_txt.get_height()) // 2))
+
+    leaderboard_rect = _leaderboard_button_rect(panel_top)
+    pygame.draw.rect(surface, COLOR_BUTTON, leaderboard_rect, border_radius=6)
+    pygame.draw.rect(surface, (120, 120, 120), leaderboard_rect, 1, border_radius=6)
+    leaderboard_txt = panel_font.render("LEADERBOARD", True, (25, 25, 25))
+    surface.blit(leaderboard_txt, (leaderboard_rect.x + (leaderboard_rect.width - leaderboard_txt.get_width()) // 2, leaderboard_rect.y + (leaderboard_rect.height - leaderboard_txt.get_height()) // 2))
+
     for index, (label, diff) in enumerate((("EASY", "easy"), ("MED", "medium"), ("HARD", "hard"))):
         rect = _difficulty_rect(panel_top, index)
         active = difficulty.lower() == diff
@@ -261,6 +285,46 @@ def draw_board_to_surface(
         pygame.draw.rect(surface, (120, 120, 120), rect, 1, border_radius=6)
         txt = panel_font.render(label, True, (25, 25, 25))
         surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
+
+    if leaderboard_visible:
+        overlay = pygame.Surface((board_size, board_size + BOARD_PANEL_GAP + PANEL_HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 150))
+        panel_w = board_size - 80
+        panel_h = board_size - 80
+        panel_x = 40
+        panel_y = 40
+        pygame.draw.rect(overlay, (248, 246, 240, 245), pygame.Rect(panel_x, panel_y, panel_w, panel_h), border_radius=14)
+        pygame.draw.rect(overlay, (90, 90, 90, 255), pygame.Rect(panel_x, panel_y, panel_w, panel_h), 2, border_radius=14)
+        title_font = pygame.font.SysFont(None, 28)
+        small_font = pygame.font.SysFont(None, 20)
+        title = title_font.render("Leaderboard", True, (25, 25, 25))
+        overlay.blit(title, (panel_x + 20, panel_y + 16))
+        close_txt = small_font.render("Press the LEADERBOARD button again to close", True, (70, 70, 70))
+        overlay.blit(close_txt, (panel_x + 20, panel_y + 44))
+
+        y = panel_y + 80
+        for difficulty_name in ("easy", "medium", "hard"):
+            helped = performance_stats.get_leaderboard(difficulty_name, helped=True)
+            unhelped = performance_stats.get_leaderboard(difficulty_name, helped=False)
+            header = small_font.render(difficulty_name.upper(), True, (40, 40, 40))
+            overlay.blit(header, (panel_x + 20, y))
+            y += 24
+            helped_text = small_font.render("Helped", True, (80, 80, 120))
+            nohelp_text = small_font.render("No help", True, (80, 120, 80))
+            overlay.blit(helped_text, (panel_x + 20, y))
+            overlay.blit(nohelp_text, (panel_x + 230, y))
+            y += 22
+            for index in range(3):
+                left = helped[index]["time_seconds"] if index < len(helped) else None
+                right = unhelped[index]["time_seconds"] if index < len(unhelped) else None
+                left_label = f"{index + 1}. {left:.2f}s" if left is not None else f"{index + 1}. --"
+                right_label = f"{index + 1}. {right:.2f}s" if right is not None else f"{index + 1}. --"
+                overlay.blit(small_font.render(left_label, True, (45, 45, 45)), (panel_x + 20, y))
+                overlay.blit(small_font.render(right_label, True, (45, 45, 45)), (panel_x + 230, y))
+                y += 20
+            y += 10
+
+        surface.blit(overlay, (0, 0))
 
     return surface
 
@@ -276,6 +340,8 @@ def run(board):
     show_incorrect = False
     note_mode = False
     strict_mode = False
+    help_mode = False
+    leaderboard_visible = False
     flash_cells = set()
     flash_end = 0
     puzzle_cache = puzzle_loader.load_cached_puzzles()
@@ -290,7 +356,7 @@ def run(board):
         difficulty = getattr(board, "difficulty", None) or "unknown"
         autonote = getattr(board, "autonote", False)
         pygame.display.set_caption(
-            f"Sudoku [{difficulty}] | notes:on | pencil:{'on' if note_mode else 'off'} | strict:{'on' if strict_mode else 'off'} | auto:{'on' if autonote else 'off'}"
+            f"Sudoku [{difficulty}] | notes:on | help:{'on' if help_mode else 'off'} | pencil:{'on' if note_mode else 'off'} | strict:{'on' if strict_mode else 'off'} | auto:{'on' if autonote else 'off'}"
         )
 
     def load_difficulty(difficulty: str):
@@ -371,7 +437,7 @@ def run(board):
         if not main.is_solved_grid(grid):
             return
         difficulty = getattr(board, "difficulty", None) or "unknown"
-        helped = bool(note_mode or (hasattr(board, "autonote") and board.autonote) or not strict_mode)
+        helped = bool(help_mode)
         elapsed = monotonic() - puzzle_started_at
         performance_stats.record_leaderboard_entry(
             difficulty=difficulty,
@@ -401,10 +467,24 @@ def run(board):
             success = board.make_move(row, column, number)
         return success, conflicts
 
+    def can_edit_cell(row: int, column: int) -> bool:
+        if hasattr(board, "is_given"):
+            return not board.is_given(row, column)
+        return (row, column) not in getattr(board, "givens", set())
+
     def toggle_note(row: int, column: int, number: int):
         if hasattr(board, "toggle_note"):
             return board.toggle_note(row, column, number)
         return False
+
+    def toggle_leaderboard() -> None:
+        nonlocal leaderboard_visible
+        leaderboard_visible = not leaderboard_visible
+
+    def toggle_help() -> None:
+        nonlocal help_mode
+        help_mode = not help_mode
+        update_caption()
 
     def cell_from_mouse(pos):
         mx, my = pos
@@ -427,7 +507,7 @@ def run(board):
                     row, column = clicked_cell
                     value = grid[row][column]
                     selected = (row, column)
-                    if active_number is not None and value is None:
+                    if active_number is not None and can_edit_cell(row, column):
                         if note_mode:
                             toggle_note(row, column, active_number)
                         else:
@@ -440,7 +520,7 @@ def run(board):
                                 flash_end = pygame.time.get_ticks() + 450
                             else:
                                 flash_cells = set()
-                    elif value is not None:
+                    elif value is not None and can_edit_cell(row, column):
                         active_number = value
                     continue
 
@@ -474,10 +554,18 @@ def run(board):
                     elif _strict_button_rect(panel_top).collidepoint(ev.pos):
                         strict_mode = not strict_mode
                         update_caption()
+                    elif _help_button_rect(panel_top).collidepoint(ev.pos):
+                        toggle_help()
+                    elif _leaderboard_button_rect(panel_top).collidepoint(ev.pos):
+                        toggle_leaderboard()
 
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
-                    running = False
+                    if leaderboard_visible:
+                        leaderboard_visible = False
+                    else:
+                        running = False
+                    continue
                 elif ev.key == pygame.K_LEFT:
                     selected = _move_selection(selected, 0, -1, n)
                 elif ev.key == pygame.K_RIGHT:
@@ -488,9 +576,9 @@ def run(board):
                     selected = _move_selection(selected, 1, 0, n)
                 elif pygame.K_0 <= ev.key <= pygame.K_9:
                     number = ev.key - pygame.K_0
-                    if note_mode and selected is not None and grid[selected[0]][selected[1]] is None:
+                    if note_mode and selected is not None and can_edit_cell(selected[0], selected[1]):
                         toggle_note(selected[0], selected[1], number)
-                    elif active_number is None and selected is not None and grid[selected[0]][selected[1]] is None:
+                    elif active_number is None and selected is not None and can_edit_cell(selected[0], selected[1]):
                         ok, conflicts = place_number(selected[0], selected[1], number)
                         if not ok and conflicts:
                             flash_cells = set(conflicts)
@@ -520,14 +608,10 @@ def run(board):
                 elif ev.key == pygame.K_a and hasattr(board, "toggle_autonote"):
                     board.toggle_autonote()
                     update_caption()
-                elif ev.key == pygame.K_l:
-                    load_difficulty(getattr(board, "difficulty", "easy") or "easy")
                 elif ev.key == pygame.K_e:
                     load_difficulty("easy")
                 elif ev.key == pygame.K_m:
                     load_difficulty("medium")
-                elif ev.key == pygame.K_h:
-                    load_difficulty("hard")
                 elif ev.key in (pygame.K_LEFTBRACKET, pygame.K_PAGEUP):
                     load_cached_puzzle(-1)
                 elif ev.key in (pygame.K_RIGHTBRACKET, pygame.K_PAGEDOWN):
@@ -549,6 +633,8 @@ def run(board):
             flash_cells=flash_cells,
             note_mode=note_mode,
             strict_mode=strict_mode,
+            help_mode=help_mode,
+            leaderboard_visible=leaderboard_visible,
             browser_index=puzzle_index if puzzle_cache else None,
             browser_total=len(puzzle_cache) if puzzle_cache else None,
         )

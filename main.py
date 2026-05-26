@@ -203,11 +203,13 @@ class Board:
         self.move_log: List = []
         # givens: coordinates that should not be changed by the player
         self.givens: Set[Tuple[int, int]] = set()
+        self.cell_origin: Dict[Tuple[int, int], str] = {}
         n = len(self.grid)
         for r in range(n):
             for c in range(len(self.grid[0])):
                 if self.grid[r][c] is not None:
                     self.givens.add((r, c))
+                    self.cell_origin[(r, c)] = 'given'
         # auto_notes are computed candidates; manual_notes are user pencil marks.
         self.auto_notes: Dict[Tuple[int, int], Set[int]] = {}
         self.manual_notes: Dict[Tuple[int, int], Set[int]] = {}
@@ -223,11 +225,13 @@ class Board:
         self.source = source
         self.move_log = []
         self.givens = set()
+        self.cell_origin = {}
         n = len(self.grid)
         for r in range(n):
             for c in range(len(self.grid[0])):
                 if self.grid[r][c] is not None:
                     self.givens.add((r, c))
+                    self.cell_origin[(r, c)] = 'given'
         self.auto_notes = {}
         self.manual_notes = {}
         self.autonote = True
@@ -274,6 +278,12 @@ class Board:
     def find_conflicts(self, row: int, column: int, value: int) -> List[Tuple[int, int]]:
         return find_conflicts(self.grid, row, column, value)
 
+    def is_given(self, row: int, column: int) -> bool:
+        return (row, column) in self.givens
+
+    def is_player_cell(self, row: int, column: int) -> bool:
+        return self.cell_origin.get((row, column)) == 'player'
+
     def get_notes(self, row: int, column: int) -> Set[int]:
         return self.find_notes(row, column)
 
@@ -317,11 +327,16 @@ class Board:
         snapshot = {
             'auto': {k: set(self.auto_notes.get(k, set())) for k in affected},
             'manual': {k: set(self.manual_notes.get(k, set())) for k in affected},
+            'origin': { (row, column): self.cell_origin.get((row, column)) },
         }
         self.grid[row][column] = value if value not in (None, 0) else None
         # The target cell is no longer a note cell after placement/clear.
         self.auto_notes.pop((row, column), None)
         self.manual_notes.pop((row, column), None)
+        if value in (None, 0):
+            self.cell_origin.pop((row, column), None)
+        else:
+            self.cell_origin[(row, column)] = 'player'
         if value in (None, 0):
             if self.autonote:
                 self.recompute_notes()
@@ -423,6 +438,7 @@ class Board:
                     _, snapshot = op
                     auto_snapshot = snapshot.get('auto', {})
                     manual_snapshot = snapshot.get('manual', {})
+                    origin_snapshot = snapshot.get('origin', {})
                     for k, s in auto_snapshot.items():
                         if s:
                             self.auto_notes[k] = set(s)
@@ -433,6 +449,15 @@ class Board:
                             self.manual_notes[k] = set(s)
                         elif k in self.manual_notes:
                             del self.manual_notes[k]
+                    for k, origin in origin_snapshot.items():
+                        if origin == 'given':
+                            self.cell_origin[k] = 'given'
+                            self.givens.add(k)
+                        elif origin == 'player':
+                            self.cell_origin[k] = 'player'
+                            self.givens.discard(k)
+                        else:
+                            self.cell_origin.pop(k, None)
                 elif op[0] == 'note':
                     _, r, c, before, after = op
                     if before:

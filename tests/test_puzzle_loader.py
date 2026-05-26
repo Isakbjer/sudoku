@@ -90,6 +90,15 @@ class TestPuzzleLoader(unittest.TestCase):
         board.force_move(0, 0, 1)
         self.assertNotIn(1, board.manual_notes.get((0, 1), set()))
 
+    def test_player_cells_are_editable_but_givens_are_locked(self):
+        board = main.Board(example_games.example_grid_1)
+        self.assertTrue(board.is_given(0, 2))
+        self.assertFalse(board.force_move(0, 2, 1))
+        self.assertTrue(board.force_move(0, 0, 1))
+        self.assertTrue(board.is_player_cell(0, 0))
+        self.assertTrue(board.force_move(0, 0, 2))
+        self.assertEqual(board.grid[0][0], 2)
+
     def test_cache_roundtrip(self):
         with TemporaryDirectory() as tmpdir:
             cache_path = Path(tmpdir) / "puzzles.json"
