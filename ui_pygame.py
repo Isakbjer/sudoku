@@ -18,14 +18,14 @@ import puzzle_loader
 import performance_stats
 
 
-CELL = 50
-MARGIN = 20
+CELL = 64
+MARGIN = 24
 LINE_WIDTH = 2
 THICK_LINE = 4
-FONT_SIZE = 28
-NOTE_FONT_SIZE = 12
-PANEL_HEIGHT = 220
-BUTTON_SIZE = 34
+FONT_SIZE = 36
+NOTE_FONT_SIZE = 18
+PANEL_HEIGHT = 248
+BUTTON_SIZE = 38
 BUTTON_GAP = 8
 BOARD_PANEL_GAP = 14
 
@@ -71,44 +71,50 @@ def _palette_rect(number: int, panel_top: int) -> pygame.Rect:
 
 
 def _note_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 16, panel_top + 34, 96, BUTTON_SIZE)
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 16, panel_top + 34, 100, BUTTON_SIZE)
 
 
 def _clear_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, panel_top + 34, 96, BUTTON_SIZE)
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 128, panel_top + 34, 100, BUTTON_SIZE)
 
 
 def _undo_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 232, panel_top + 34, 76, BUTTON_SIZE)
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 240, panel_top + 34, 80, BUTTON_SIZE)
 
 
 def _strict_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 316, panel_top + 34, 84, BUTTON_SIZE)
+    return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 328, panel_top + 34, 88, BUTTON_SIZE)
 
 
 def _difficulty_rect(panel_top: int, label_index: int) -> pygame.Rect:
-    left = MARGIN + label_index * 88
-    return pygame.Rect(left, panel_top + 84, 80, 28)
+    left = MARGIN + label_index * 96
+    return pygame.Rect(left, panel_top + 88, 88, 30)
 
 
 def _browse_prev_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN, panel_top + 134, 54, 28)
+    return pygame.Rect(MARGIN, panel_top + 142, 56, 30)
 
 
 def _browse_next_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 62, panel_top + 134, 54, 28)
+    return pygame.Rect(MARGIN + 64, panel_top + 142, 56, 30)
 
 
 def _refresh_cache_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 124, panel_top + 134, 112, 28)
+    return pygame.Rect(MARGIN + 128, panel_top + 142, 116, 30)
 
 
 def _help_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 244, panel_top + 134, 84, 28)
+    return pygame.Rect(MARGIN + 248, panel_top + 142, 90, 30)
 
 
 def _leaderboard_button_rect(panel_top: int) -> pygame.Rect:
-    return pygame.Rect(MARGIN + 336, panel_top + 134, 124, 28)
+    return pygame.Rect(MARGIN + 344, panel_top + 142, 130, 30)
+
+
+def _selection_for_click(selected: Tuple[int, int] | None, row: int, column: int) -> Tuple[int, int] | None:
+    if selected == (row, column):
+        return None
+    return row, column
 
 
 def _move_selection(selected: Tuple[int, int] | None, row_delta: int, column_delta: int, size: int) -> Tuple[int, int]:
@@ -204,8 +210,24 @@ def draw_board_to_surface(
                 else:
                     notes = set()
                 if notes:
-                    txt = note_font.render("".join(str(num) for num in sorted(notes)), True, (120, 120, 120))
-                    surface.blit(txt, (rect.x + (CELL - txt.get_width()) // 2, rect.y + (CELL - txt.get_height()) // 2))
+                    note_size = CELL // 3
+                    for note in sorted(notes):
+                        note_row = (note - 1) // 3
+                        note_col = (note - 1) % 3
+                        note_rect = pygame.Rect(
+                            rect.x + note_col * note_size,
+                            rect.y + note_row * note_size,
+                            note_size,
+                            note_size,
+                        )
+                        note_txt = note_font.render(str(note), True, (120, 120, 120))
+                        surface.blit(
+                            note_txt,
+                            (
+                                note_rect.x + (note_rect.width - note_txt.get_width()) // 2,
+                                note_rect.y + (note_rect.height - note_txt.get_height()) // 2,
+                            ),
+                        )
 
     for i in range(n + 1):
         lw = THICK_LINE if i % int(n**0.5) == 0 else LINE_WIDTH
@@ -506,7 +528,10 @@ def run(board):
                 if clicked_cell is not None:
                     row, column = clicked_cell
                     value = grid[row][column]
-                    selected = (row, column)
+                    same_cell = selected == (row, column)
+                    selected = _selection_for_click(selected, row, column)
+                    if same_cell:
+                        continue
                     if active_number is not None and can_edit_cell(row, column):
                         if note_mode:
                             toggle_note(row, column, active_number)
@@ -592,6 +617,8 @@ def run(board):
                 elif ev.key in (pygame.K_BACKSPACE, pygame.K_DELETE):
                     if selected is not None:
                         place_number(selected[0], selected[1], 0)
+                        if selected is not None and can_edit_cell(selected[0], selected[1]):
+                            selected = None
                 elif ev.key == pygame.K_u:
                     board.undo()
                 elif ev.key == pygame.K_z and (ev.mod & pygame.KMOD_CTRL):
