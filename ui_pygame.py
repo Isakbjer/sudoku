@@ -74,6 +74,18 @@ def _clear_button_rect() -> pygame.Rect:
     return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, MARGIN + CELL * 9 + 24, 96, BUTTON_SIZE)
 
 
+def _browse_prev_rect() -> pygame.Rect:
+    return pygame.Rect(MARGIN, MARGIN + CELL * 9 + 72, 54, 28)
+
+
+def _browse_next_rect() -> pygame.Rect:
+    return pygame.Rect(MARGIN + 62, MARGIN + CELL * 9 + 72, 54, 28)
+
+
+def _refresh_cache_rect() -> pygame.Rect:
+    return pygame.Rect(MARGIN + 124, MARGIN + CELL * 9 + 72, 112, 28)
+
+
 def _move_selection(selected: Tuple[int, int] | None, row_delta: int, column_delta: int, size: int) -> Tuple[int, int]:
     if selected is None:
         return (0, 0)
@@ -90,6 +102,8 @@ def draw_board_to_surface(
     flash_cells: set | None = None,
     show_notes: bool = False,
     note_mode: bool = False,
+    browser_index: Optional[int] = None,
+    browser_total: Optional[int] = None,
 ) -> pygame.Surface:
     """Render the board to a Surface and return it. Headless-friendly."""
     _init_pygame()
@@ -178,6 +192,8 @@ def draw_board_to_surface(
     status = f"{difficulty} | notes:{'on' if show_notes else 'off'} | pencil:{'on' if note_mode else 'off'} | auto:{'on' if autonote else 'off'}"
     if active_number is not None:
         status += f" | active:{active_number}"
+    if browser_index is not None and browser_total:
+        status += f" | puzzle:{browser_index + 1}/{browser_total}"
     panel_txt = panel_font.render(status, True, (50, 50, 50))
     surface.blit(panel_txt, (MARGIN, panel_top + 8))
 
@@ -200,6 +216,15 @@ def draw_board_to_surface(
     clear_txt = panel_font.render("CLEAR", True, (25, 25, 25))
     surface.blit(clear_txt, (clear_rect.x + (clear_rect.width - clear_txt.get_width()) // 2, clear_rect.y + (clear_rect.height - clear_txt.get_height()) // 2))
 
+    prev_rect = _browse_prev_rect()
+    next_rect = _browse_next_rect()
+    refresh_rect = _refresh_cache_rect()
+    for rect, label in ((prev_rect, "<"), (next_rect, ">"), (refresh_rect, "CACHE")):
+        pygame.draw.rect(surface, COLOR_BUTTON, rect, border_radius=6)
+        pygame.draw.rect(surface, (120, 120, 120), rect, 1, border_radius=6)
+        txt = panel_font.render(label, True, (25, 25, 25))
+        surface.blit(txt, (rect.x + (rect.width - txt.get_width()) // 2, rect.y + (rect.height - txt.get_height()) // 2))
+
     return surface
 
 
@@ -216,6 +241,8 @@ def run(board):
     note_mode = False
     flash_cells = set()
     flash_end = 0
+    puzzle_cache = puzzle_loader.load_cached_puzzles()
+    puzzle_index = 0
 
     def current_grid():
         return _grid(board)
@@ -247,6 +274,41 @@ def run(board):
         flash_cells = set()
         flash_end = 0
         update_caption()
+
+    def load_puzzle(puzzle):
+        nonlocal selected, active_number, flash_cells, flash_end
+        if hasattr(board, "load_grid"):
+            board.load_grid(puzzle.grid, difficulty=puzzle.difficulty, source=puzzle.source, solution=puzzle.solution)
+        selected = None
+        active_number = None
+        flash_cells = set()
+        flash_end = 0
+        update_caption()
+
+    def load_cached_puzzle(offset: int) -> None:
+        nonlocal puzzle_index, puzzle_cache
+        if not puzzle_cache:
+            print("No cached puzzles yet. Press CACHE to download some first.")
+            return
+        puzzle_index = (puzzle_index + offset) % len(puzzle_cache)
+        load_puzzle(puzzle_cache[puzzle_index])
+
+    def refresh_cache() -> None:
+        nonlocal puzzle_cache, puzzle_index
+        try:
+            puzzle_loader.cache_downloaded_puzzles("easy", count=1)
+            puzzle_loader.cache_downloaded_puzzles("medium", count=1)
+            puzzle_loader.cache_downloaded_puzzles("hard", count=1)
+        except Exception as exc:
+            print(f"Failed to refresh cache: {exc}")
+            return
+        puzzle_cache = puzzle_loader.load_cached_puzzles()
+        puzzle_index = 0 if puzzle_cache else -1
+        if puzzle_cache:
+            load_puzzle(puzzle_cache[0])
+
+    if puzzle_cache:
+        load_puzzle(puzzle_cache[0])
 
     def place_number(row: int, column: int, number: int):
         if hasattr(board, "try_move"):
@@ -300,7 +362,13 @@ def run(board):
                         update_caption()
                         break
                 else:
-                    if _note_button_rect().collidepoint(ev.pos):
+                    if _browse_prev_rect().collidepoint(ev.pos):
+                        load_cached_puzzle(-1)
+                    elif _browse_next_rect().collidepoint(ev.pos):
+                        load_cached_puzzle(1)
+                    elif _refresh_cache_rect().collidepoint(ev.pos):
+                        refresh_cache()
+                    elif _note_button_rect().collidepoint(ev.pos):
                         note_mode = not note_mode
                         update_caption()
                     elif _clear_button_rect().collidepoint(ev.pos):
@@ -357,6 +425,12 @@ def run(board):
                     load_difficulty("medium")
                 elif ev.key == pygame.K_h:
                     load_difficulty("hard")
+                elif ev.key in (pygame.K_LEFTBRACKET, pygame.K_PAGEUP):
+                    load_cached_puzzle(-1)
+                elif ev.key in (pygame.K_RIGHTBRACKET, pygame.K_PAGEDOWN):
+                    load_cached_puzzle(1)
+                elif ev.key == pygame.K_r:
+                    refresh_cache()
 
         if flash_end and pygame.time.get_ticks() > flash_end:
             flash_cells = set()
@@ -370,6 +444,8 @@ def run(board):
             flash_cells=flash_cells,
             show_notes=show_notes,
             note_mode=note_mode,
+            browser_index=puzzle_index if puzzle_cache else None,
+            browser_total=len(puzzle_cache) if puzzle_cache else None,
         )
         screen.blit(surface, (0, 0))
         pygame.display.flip()

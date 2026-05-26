@@ -1,6 +1,8 @@
 import io
 import json
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import example_games
@@ -74,6 +76,36 @@ class TestPuzzleLoader(unittest.TestCase):
         self.assertEqual(board.find_notes(0, 0), {1, 2})
         self.assertTrue(board.undo())
         self.assertEqual(board.find_notes(0, 0), {1})
+
+    def test_cache_roundtrip(self):
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "puzzles.json"
+            puzzles = [
+                puzzle_loader.Puzzle(grid=[[None, 1], [2, None]], difficulty="easy", source="one"),
+                puzzle_loader.Puzzle(grid=[[1, None], [None, 2]], difficulty="hard", source="two"),
+            ]
+            puzzle_loader.save_cached_puzzles(puzzles, cache_path)
+            loaded = puzzle_loader.load_cached_puzzles(cache_path)
+
+        self.assertEqual(len(loaded), 2)
+        self.assertEqual(loaded[0].difficulty, "easy")
+        self.assertEqual(loaded[1].source, "two")
+
+    def test_cache_downloaded_puzzles_appends_downloads(self):
+        with TemporaryDirectory() as tmpdir:
+            cache_path = Path(tmpdir) / "puzzles.json"
+            downloaded = [
+                puzzle_loader.Puzzle(grid=[[None, None], [None, None]], difficulty="easy", source="one"),
+                puzzle_loader.Puzzle(grid=[[1, None], [None, 2]], difficulty="medium", source="two"),
+            ]
+
+            with patch("puzzle_loader.download_puzzle", side_effect=downloaded):
+                result = puzzle_loader.cache_downloaded_puzzles("easy", count=2, cache_path=cache_path)
+
+            self.assertEqual([p.difficulty for p in result], ["easy", "medium"])
+            cached = puzzle_loader.load_cached_puzzles(cache_path)
+            self.assertEqual(len(cached), 2)
+            self.assertEqual(cached[0].source, "one")
 
 
 if __name__ == "__main__":

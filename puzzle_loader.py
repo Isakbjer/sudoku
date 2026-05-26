@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 
 DEFAULT_API_URL = "https://sudoku-api.vercel.app/api/dosuku"
+DEFAULT_CACHE_PATH = Path(__file__).resolve().parent / ".sudoku_cache" / "puzzles.json"
 
 
 @dataclass(frozen=True)
@@ -24,6 +25,23 @@ class Puzzle:
     difficulty: str = "unknown"
     solution: Optional[List[List[Optional[int]]]] = None
     source: str = DEFAULT_API_URL
+
+    def to_dict(self) -> dict:
+        return {
+            "grid": self.grid,
+            "difficulty": self.difficulty,
+            "solution": self.solution,
+            "source": self.source,
+        }
+
+
+def puzzle_from_dict(data: dict) -> Puzzle:
+    return Puzzle(
+        grid=_normalize_grid(data["grid"]),
+        difficulty=str(data.get("difficulty") or "unknown"),
+        solution=_normalize_grid(data["solution"]) if data.get("solution") is not None else None,
+        source=str(data.get("source") or DEFAULT_API_URL),
+    )
 
 
 def _normalize_cell(value) -> Optional[int]:
@@ -61,6 +79,44 @@ def download_puzzle(difficulty: str = "easy", timeout: int = 10) -> Puzzle:
     except URLError as exc:
         raise RuntimeError(f"Unable to download puzzle: {exc}") from exc
     return parse_api_payload(payload)
+
+
+def load_cached_puzzles(cache_path: str | Path = DEFAULT_CACHE_PATH) -> List[Puzzle]:
+    cache_file = Path(cache_path)
+    if not cache_file.exists():
+        return []
+    with cache_file.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return [puzzle_from_dict(item) for item in payload]
+
+
+def save_cached_puzzles(puzzles: List[Puzzle], cache_path: str | Path = DEFAULT_CACHE_PATH) -> Path:
+    cache_file = Path(cache_path)
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    with cache_file.open("w", encoding="utf-8") as handle:
+        json.dump([puzzle.to_dict() for puzzle in puzzles], handle, indent=2)
+    return cache_file
+
+
+def cache_downloaded_puzzle(difficulty: str = "easy", cache_path: str | Path = DEFAULT_CACHE_PATH,
+                            timeout: int = 10) -> Puzzle:
+    puzzle = download_puzzle(difficulty=difficulty, timeout=timeout)
+    puzzles = load_cached_puzzles(cache_path)
+    puzzles.append(puzzle)
+    save_cached_puzzles(puzzles, cache_path)
+    return puzzle
+
+
+def cache_downloaded_puzzles(difficulty: str = "easy", count: int = 1,
+                             cache_path: str | Path = DEFAULT_CACHE_PATH,
+                             timeout: int = 10) -> List[Puzzle]:
+    puzzles = load_cached_puzzles(cache_path)
+    downloaded: List[Puzzle] = []
+    for _ in range(count):
+        downloaded.append(download_puzzle(difficulty=difficulty, timeout=timeout))
+    puzzles.extend(downloaded)
+    save_cached_puzzles(puzzles, cache_path)
+    return downloaded
 
 
 def load_csv_puzzle_row(row: dict) -> Puzzle:
