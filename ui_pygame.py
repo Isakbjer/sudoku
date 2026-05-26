@@ -35,6 +35,7 @@ COLOR_FLASH = (255, 200, 200)
 COLOR_BUTTON = (235, 235, 235)
 COLOR_BUTTON_ACTIVE = (200, 230, 255)
 COLOR_BUTTON_NOTE = (255, 230, 180)
+COLOR_SELECTED_BORDER = (30, 90, 160)
 
 
 def _init_pygame() -> None:
@@ -71,6 +72,14 @@ def _note_button_rect() -> pygame.Rect:
 
 def _clear_button_rect() -> pygame.Rect:
     return pygame.Rect(MARGIN + 9 * (BUTTON_SIZE + BUTTON_GAP) + 124, MARGIN + CELL * 9 + 24, 96, BUTTON_SIZE)
+
+
+def _move_selection(selected: Tuple[int, int] | None, row_delta: int, column_delta: int, size: int) -> Tuple[int, int]:
+    if selected is None:
+        return (0, 0)
+    row = (selected[0] + row_delta) % size
+    column = (selected[1] + column_delta) % size
+    return row, column
 
 
 def draw_board_to_surface(
@@ -129,6 +138,7 @@ def draw_board_to_surface(
                 pygame.draw.rect(surface, COLOR_SAME, rect)
             if selected == (r, c):
                 pygame.draw.rect(surface, COLOR_SELECTED, rect)
+                pygame.draw.rect(surface, COLOR_SELECTED_BORDER, rect, 3)
             if flash_cells and (r, c) in flash_cells:
                 pygame.draw.rect(surface, COLOR_FLASH, rect)
 
@@ -300,6 +310,14 @@ def run(board):
             elif ev.type == pygame.KEYDOWN:
                 if ev.key == pygame.K_ESCAPE:
                     running = False
+                elif ev.key == pygame.K_LEFT:
+                    selected = _move_selection(selected, 0, -1, n)
+                elif ev.key == pygame.K_RIGHT:
+                    selected = _move_selection(selected, 0, 1, n)
+                elif ev.key == pygame.K_UP:
+                    selected = _move_selection(selected, -1, 0, n)
+                elif ev.key == pygame.K_DOWN:
+                    selected = _move_selection(selected, 1, 0, n)
                 elif pygame.K_0 <= ev.key <= pygame.K_9:
                     number = ev.key - pygame.K_0
                     if note_mode and selected is not None and grid[selected[0]][selected[1]] is None:
